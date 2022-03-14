@@ -990,6 +990,16 @@ ClusterChannelRedisWriter::RedisDisconnect( void )
 /*-------------------------------------------------------------------------*/
 
 bool
+ClusterChannelRedisWriter::IsOnline( void ) const
+{
+    return
+        m_redisContext != GUCEF_NULL &&
+        m_redisPipeline != GUCEF_NULL;
+}
+
+/*-------------------------------------------------------------------------*/
+
+bool
 ClusterChannelRedisWriter::RedisConnect( void )
 {GUCEF_TRACE;
 
@@ -1004,7 +1014,7 @@ ClusterChannelRedisWriter::RedisConnect( void )
         //rppConnectionOptions.db = 1;  // Optional. Use the 0th database by default.
 
         // Optional. Timeout before we successfully send request to or receive response from redis.
-        // By default, the timeout is 0ms, i.e. never timeout and block until we send or receive successfuly.
+        // By default, the timeout is 0ms, i.e. never timeout and block until we send or receive successfully.
         // NOTE: if any command is timed out, we throw a TimeoutError exception.
         rppConnectionOptions.socket_timeout = std::chrono::milliseconds( 100 );
         rppConnectionOptions.connect_timeout = std::chrono::milliseconds( 100 );
@@ -1169,6 +1179,14 @@ Udp2RedisClusterChannel::LoadConfig( const ChannelSettings& channelSettings )
 
     m_channelSettings = channelSettings;
     return m_redisWriter->LoadConfig( channelSettings );
+}
+
+/*-------------------------------------------------------------------------*/
+
+bool
+Udp2RedisClusterChannel::IsOnline( void ) const
+{
+    return m_redisWriter->IsOnline();
 }
 
 /*-------------------------------------------------------------------------*/
@@ -1737,6 +1755,75 @@ RestApiUdp2RedisConfigResource::Deserialize( const CORE::CString& resourcePath  
 
 /*-------------------------------------------------------------------------*/
 
+RestApiUdp2RedisStatus::RestApiUdp2RedisStatus( Udp2RedisCluster* app )
+    : WEB::CCodecBasedHTTPServerResource()
+    , m_app( app )
+{
+    GUCEF_TRACE;
+
+    m_allowSerialize = true;
+}
+
+/*-------------------------------------------------------------------------*/
+
+RestApiUdp2RedisStatus::~RestApiUdp2RedisStatus()
+{
+    GUCEF_TRACE;
+}
+
+/*-------------------------------------------------------------------------*/
+
+bool
+RestApiUdp2RedisStatus::Serialize( const CORE::CString& resourcePath,
+                                   CORE::CDataNode& output,
+                                   const CORE::CString& representation,
+                                   const CORE::CString& params )
+{
+    GUCEF_TRACE;
+
+    const CORE::CString::StringVector api{ resourcePath.ParseElements( '/', false ) };
+
+    if( GUCEF_NULL != m_app && api.size() == 2 )
+    {
+        const bool detailed{ api[1] == "detailed" };
+        if( api[1] == "basic" || detailed )
+        {
+            if( m_app->IsInStandby() )
+                output.SetAttribute( "Status", "standby" );
+            else if( m_app->IsOnline() )
+                output.SetAttribute( "Status", "online" );
+            else
+                output.SetAttribute( "Status", "offline" );
+
+            if( detailed )
+            {
+                Udp2RedisCluster::ChannelsStatus channelsStatus;
+                m_app->GetChannelsStatus( channelsStatus );
+
+                CORE::CDataNode* statuses = output.AddChild( "Channels", GUCEF_DATATYPE_ARRAY );;
+                Udp2RedisCluster::ChannelsStatus::const_iterator chStatus = channelsStatus.begin();
+                for( ; chStatus != channelsStatus.end(); ++chStatus )
+                {
+                    const CORE::CVariant& id = (*chStatus).first;
+                    const CORE::CVariant& status = (*chStatus).second ? "parsing" : "idle";
+
+                    CORE::CDataNode obj;
+                    obj.SetAttribute( "Id", id );
+                    obj.SetAttribute( "Status", status );
+
+                    statuses->AddChild( obj );
+                }
+            }
+
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/*-------------------------------------------------------------------------*/
+
 Udp2RedisCluster::Udp2RedisCluster( void )
     : CORE::CObserver()
     , CORE::CGloballyConfigurable()
@@ -1803,6 +1890,55 @@ Udp2RedisCluster::Start( void )
         return m_httpServer.Listen();
     }
     return errorOccured;
+}
+
+/*-------------------------------------------------------------------------*/
+
+bool
+Udp2RedisCluster::IsInStandby() const
+{
+    GUCEF_TRACE;
+    return m_isInStandby;
+}
+
+/*-------------------------------------------------------------------------*/
+
+bool
+Udp2RedisCluster::IsOnline() const
+{
+    GUCEF_TRACE;
+
+    if( m_channels.empty() )
+        return false;
+
+    Udp2RedisClusterChannelMap::const_iterator i = m_channels.begin();
+    for( ; i != m_channels.end(); ++i )
+    {
+        Udp2RedisClusterChannelPtr channel = (*i).second;
+        if( !channel->IsOnline() )
+            return false;
+    }
+
+    return true;
+}
+
+/*-------------------------------------------------------------------------*/
+
+void
+Udp2RedisCluster::GetChannelsStatus( ChannelsStatus& channelsStatus ) const
+{
+    GUCEF_TRACE;
+
+    channelsStatus.clear();
+
+    Udp2RedisClusterChannelMap::const_iterator iterChannel = m_channels.begin();
+    for( ; iterChannel != m_channels.end(); ++iterChannel )
+    {
+        CORE::Int32 channelId = iterChannel->first;
+        Udp2RedisClusterChannelPtr channel = (*iterChannel).second;
+        bool isParsing = channel->IsOnline();
+        channelsStatus[channelId] = isParsing;
+    }
 }
 
 /*-------------------------------------------------------------------------*/
@@ -2179,10 +2315,12 @@ Udp2RedisCluster::LoadConfig( const CORE::CDataNode& globalConfig )
 
     m_httpServer.SetPort( appConfig->GetAttributeValueOrChildValueByName( "restApiPort" ).AsUInt16( 10000, true ) );
 
-    m_httpRouter.SetResourceMapping( "/info", RestApiUdp2RedisInfoResource::THTTPServerResourcePtr( new RestApiUdp2RedisInfoResource( this ) )  );
+    m_httpRouter.SetResourceMapping( "/info", RestApiUdp2RedisInfoResource::THTTPServerResourcePtr( new RestApiUdp2RedisInfoResource( this ) ) );
     m_httpRouter.SetResourceMapping( "/config/appargs", RestApiUdp2RedisInfoResource::THTTPServerResourcePtr( new RestApiUdp2RedisConfigResource( this, true ) ) );
-    m_httpRouter.SetResourceMapping( "/config", RestApiUdp2RedisInfoResource::THTTPServerResourcePtr( new RestApiUdp2RedisConfigResource( this, false ) )  );
+    m_httpRouter.SetResourceMapping( "/config", RestApiUdp2RedisInfoResource::THTTPServerResourcePtr( new RestApiUdp2RedisConfigResource( this, false ) ) );
     m_httpRouter.SetResourceMapping( appConfig->GetAttributeValueOrChildValueByName( "RestBasicHealthUri" ).AsString( "/health/basic", true ), RestApiUdp2RedisInfoResource::THTTPServerResourcePtr( new WEB::CDummyHTTPServerResource() ) );
+    m_httpRouter.SetResourceMapping( "/status/basic", RestApiUdp2RedisInfoResource::THTTPServerResourcePtr( new RestApiUdp2RedisStatus( this ) ) );
+    m_httpRouter.SetResourceMapping( "/status/detailed", RestApiUdp2RedisInfoResource::THTTPServerResourcePtr( new RestApiUdp2RedisStatus( this ) ) );
 
     m_httpServer.GetRouterController()->AddRouterMapping( &m_httpRouter, "", "" );
 
