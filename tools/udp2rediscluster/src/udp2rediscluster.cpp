@@ -1895,7 +1895,7 @@ Udp2RedisCluster::Start( void )
 /*-------------------------------------------------------------------------*/
 
 bool
-Udp2RedisCluster::IsInStandby() const
+Udp2RedisCluster::IsInStandby( void ) const
 {
     GUCEF_TRACE;
     return m_isInStandby;
@@ -1904,7 +1904,7 @@ Udp2RedisCluster::IsInStandby() const
 /*-------------------------------------------------------------------------*/
 
 bool
-Udp2RedisCluster::IsOnline() const
+Udp2RedisCluster::IsOnline( void ) const
 {
     GUCEF_TRACE;
 
