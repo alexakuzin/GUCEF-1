@@ -297,6 +297,14 @@ RedisInfoService::LoadConfig( const Settings& settings )
 
 /*-------------------------------------------------------------------------*/
 
+bool
+RedisInfoService::IsOnline( void ) const
+{
+    return (GUCEF_NULL != m_redisContext && !m_redisNodesMap.empty());
+}
+
+/*-------------------------------------------------------------------------*/
+
 const Settings& 
 RedisInfoService::GetSettings( void ) const
 {GUCEF_TRACE;
@@ -2446,6 +2454,55 @@ RestApiRedisInfoConfigResource::Deserialize( const CORE::CString& resourcePath  
 
 /*-------------------------------------------------------------------------*/
 
+RestApiRedisInfoStatus::RestApiRedisInfoStatus( RedisInfo* app )
+    : WEB::CCodecBasedHTTPServerResource()
+    , m_app( app )
+{
+    GUCEF_TRACE;
+
+    m_allowSerialize = true;
+}
+
+/*-------------------------------------------------------------------------*/
+
+RestApiRedisInfoStatus::~RestApiRedisInfoStatus()
+{
+    GUCEF_TRACE;
+}
+
+/*-------------------------------------------------------------------------*/
+
+bool
+RestApiRedisInfoStatus::Serialize( const CORE::CString& resourcePath,
+                                   CORE::CDataNode& output,
+                                   const CORE::CString& representation,
+                                   const CORE::CString& params )
+{
+    GUCEF_TRACE;
+
+    if( GUCEF_NULL != m_app )
+    {
+        const CORE::SVersion ver{ m_app->GetVersion() };
+        std::stringstream ssVer;
+        ssVer << ver.major << "." << ver.minor << "." << ver.release << "." << ver.patch;
+        const CORE::CString strVer{ ssVer.str() };
+        output.SetAttribute( "Version", strVer );
+
+        if( m_app->IsInStandby() )
+            output.SetAttribute( "Status", "standby" );
+        else if( m_app->IsOnline() )
+            output.SetAttribute( "Status", "online" );
+        else
+            output.SetAttribute( "Status", "offline" );
+
+        return true;
+    }
+
+    return false;
+}
+
+/*-------------------------------------------------------------------------*/
+
 RedisInfo::RedisInfo( void )
     : CORE::CObserver()
     , m_isInStandby( false )
@@ -2617,6 +2674,36 @@ RedisInfo::SetStandbyMode( bool putInStandbyMode )
 /*-------------------------------------------------------------------------*/
 
 bool
+RedisInfo::IsInStandby( void ) const
+{
+    GUCEF_TRACE;
+    return m_isInStandby;
+}
+
+/*-------------------------------------------------------------------------*/
+
+bool
+RedisInfo::IsOnline( void ) const
+{
+    GUCEF_TRACE;
+
+    if( m_infoServices.empty() )
+        return false;
+
+    TStringToInfoServiceMap::const_iterator i = m_infoServices.begin();
+    for( ; i != m_infoServices.end(); ++i )
+    {
+        RedisInfoServicePtr service = (*i).second;
+        if( !service->IsOnline() )
+            return false;
+    }
+
+    return true;
+}
+
+/*-------------------------------------------------------------------------*/
+
+bool
 RedisInfo::LoadConfig( const CORE::CValueList& appConfig   ,
                        const CORE::CDataNode& globalConfig )
 {GUCEF_TRACE;
@@ -2639,12 +2726,12 @@ RedisInfo::LoadConfig( const CORE::CValueList& appConfig   ,
 
     m_httpServer.SetPort( CORE::StringToUInt16( CORE::ResolveVars( appConfig.GetValueAlways( "restApiPort" ) ), 10000 ) );
 
-    m_httpRouter.SetResourceMapping( "/info", ( new RestApiRedisInfoInfoResource( this ) )->CreateSharedPtr()  );
-    m_httpRouter.SetResourceMapping( "/config/appargs", ( new RestApiRedisInfoConfigResource( this, true ) )->CreateSharedPtr() );
-    m_httpRouter.SetResourceMapping( "/config", ( new RestApiRedisInfoConfigResource( this, false ) )->CreateSharedPtr()  );
-    m_httpRouter.SetResourceMapping( "/v1/clusters", ( new TStringToInfoServiceMapWebResource( "RedisClusters", "RedisCluster", "clusterName", &m_infoServices, &m_appLock ) )->CreateSharedPtr() ); 
-
-    m_httpRouter.SetResourceMapping( CORE::ResolveVars( appConfig.GetValueAlways( "RestBasicHealthUri", "/health/basic" ) ), RestApiRedisInfoInfoResource::THTTPServerResourcePtr( new WEB::CDummyHTTPServerResource() )  );
+    m_httpRouter.SetResourceMapping( "/info", (new RestApiRedisInfoInfoResource( this ))->CreateSharedPtr() );
+    m_httpRouter.SetResourceMapping( "/config/appargs", (new RestApiRedisInfoConfigResource( this, true ))->CreateSharedPtr() );
+    m_httpRouter.SetResourceMapping( "/config", (new RestApiRedisInfoConfigResource( this, false ))->CreateSharedPtr() );
+    m_httpRouter.SetResourceMapping( "/v1/clusters", (new TStringToInfoServiceMapWebResource( "RedisClusters", "RedisCluster", "clusterName", &m_infoServices, &m_appLock ))->CreateSharedPtr() );
+    m_httpRouter.SetResourceMapping( "/status", (new RestApiRedisInfoStatus( this ))->CreateSharedPtr() );
+    m_httpRouter.SetResourceMapping( CORE::ResolveVars( appConfig.GetValueAlways( "RestBasicHealthUri", "/health/basic" ) ), RestApiRedisInfoInfoResource::THTTPServerResourcePtr( new WEB::CDummyHTTPServerResource() ) );
 
     m_httpServer.GetRouterController()->AddRouterMapping( &m_httpRouter, "", "" );
     return true;
@@ -2668,3 +2755,63 @@ RedisInfo::GetGlobalConfig( void ) const
 
 /*-------------------------------------------------------------------------*/
 
+const CORE::CString
+RedisInfo::GetExecutableFileName( void ) const
+{
+#if defined(PLATFORM_POSIX) || defined(__linux__)
+
+    std::string sp;
+    std::ifstream( "/proc/self/comm" ) >> sp;
+    return sp;
+
+#elif defined(_WIN32)
+
+    char buf[MAX_PATH];
+    GetModuleFileNameA( nullptr, buf, MAX_PATH );
+    return buf;
+
+#else
+
+    static_assert(false, "unrecognized platform");
+
+#endif
+}
+
+/*-------------------------------------------------------------------------*/
+
+const CORE::SVersion&
+RedisInfo::GetVersion( void ) const
+{
+    CORE::SVersion ver{ NULL };
+
+    const CORE::CString exeName = GetExecutableFileName();
+
+    DWORD  verHandle = 0;
+    UINT   szBuf = 0;
+    LPBYTE lpBuf = NULL;
+    DWORD  verSize{ GetFileVersionInfoSize( exeName.C_String(), &verHandle ) };
+
+    if( verSize != NULL )
+    {
+        std::unique_ptr<LPSTR> verData{ new LPSTR[verSize] };
+        if( GetFileVersionInfo( exeName.C_String(), NULL, verSize, verData.get() ) )
+        {
+            if( VerQueryValue( verData.get(), "\\", reinterpret_cast<VOID FAR * FAR*>(&lpBuf), &szBuf ) && szBuf )
+            {
+                VS_FIXEDFILEINFO* verInfo = reinterpret_cast<VS_FIXEDFILEINFO*>(lpBuf);
+                if( verInfo->dwSignature == FIXEDFILEINFO )
+                {
+                    // it does not matter if you are on 32 bit or 64 bit,
+                    // DWORD is always 32 bits, so first two revision numbers
+                    // come from dwFileVersionMS, last two come from dwFileVersionLS
+                    ver.major = (verInfo->dwFileVersionMS >> 16) & 0xffff;
+                    ver.minor = (verInfo->dwFileVersionMS >> 0) & 0xfff;
+                    ver.release = (verInfo->dwFileVersionLS >> 16) & 0xffff;
+                    ver.patch = (verInfo->dwFileVersionLS >> 0) & 0xffff;
+                }
+            }
+        }
+    }
+
+    return ver;
+}

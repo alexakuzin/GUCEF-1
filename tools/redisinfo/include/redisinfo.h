@@ -246,6 +246,8 @@ class RedisInfoService : public CORE::CTaskConsumer
 
     bool LoadConfig( const Settings& settings );
 
+    bool IsOnline( void ) const;
+
     const Settings& GetSettings( void ) const;
 
     bool ConnectHttpRouting( WEB::CDefaultHTTPServerRouter& webRouter );
@@ -461,6 +463,26 @@ class RestApiRedisInfoConfigResource : public WEB::CCodecBasedHTTPServerResource
 
 /*-------------------------------------------------------------------------*/
 
+class RestApiRedisInfoStatus : public WEB::CCodecBasedHTTPServerResource
+{
+public:
+
+    RestApiRedisInfoStatus( RedisInfo* app );
+
+    virtual ~RestApiRedisInfoStatus();
+
+    virtual bool Serialize( const CORE::CString& resourcePath,
+                            CORE::CDataNode& output,
+                            const CORE::CString& representation,
+                            const CORE::CString& params ) GUCEF_VIRTUAL_OVERRIDE;
+
+private:
+
+    RedisInfo* m_app;
+};
+
+/*-------------------------------------------------------------------------*/
+
 class RedisInfo : public CORE::CObserver
 {
     public:
@@ -472,6 +494,10 @@ class RedisInfo : public CORE::CObserver
 
     bool SetStandbyMode( bool newMode );
 
+    bool IsInStandby( void ) const;
+
+    bool IsOnline( void ) const;
+
     bool IsGlobalStandbyEnabled( void ) const;
 
     bool LoadConfig( const CORE::CValueList& appConfig   ,
@@ -481,6 +507,8 @@ class RedisInfo : public CORE::CObserver
 
     const CORE::CDataNode& GetGlobalConfig( void ) const;
 
+    const CORE::SVersion& GetVersion( void ) const;
+
     private:
 
     typedef CORE::CTEventHandlerFunctor< RedisInfo > TEventCallback;
@@ -488,6 +516,9 @@ class RedisInfo : public CORE::CObserver
     typedef GUCEF::WEB::CTReadableMapIndexHttpServerResource< CORE::CString, RedisInfoServicePtr > TStringToInfoServiceMapWebResource;
 
     private:
+
+    static const DWORD FIXEDFILEINFO = 0xFEEF04BD;
+    const CORE::CString GetExecutableFileName( void ) const;
 
     bool m_isInStandby;
     bool m_globalStandbyEnabled;
