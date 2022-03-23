@@ -701,8 +701,8 @@ ClusterChannelRedisWriter::RedisSendSyncImpl( const TPacketEntryVectorPtrVector&
         GUCEF_EXCEPTION_LOG( CORE::LOGLEVEL_IMPORTANT, "Udp2RedisClusterChannel(" + CORE::PointerToString( this ) + "):RedisSendSyncImpl: Redis++ MovedError (Redirect failed?) . Current slot: " +
                                 CORE::ToString( m_redisHashSlot ) + ", new slot: " + CORE::ToString( e.slot() ) + " at node " + e.node().host + ":" + CORE::ToString( e.node().port ) +
                                 " exception: " + e.what() );
-        RedisDisconnect();
-        m_redisReconnectTimer->SetEnabled( true );
+        RedisReconnect();
+
         return false;
     }
     catch ( const sw::redis::RedirectionError& e )
@@ -711,17 +711,16 @@ ClusterChannelRedisWriter::RedisSendSyncImpl( const TPacketEntryVectorPtrVector&
         GUCEF_EXCEPTION_LOG( CORE::LOGLEVEL_IMPORTANT, "Udp2RedisClusterChannel(" + CORE::PointerToString( this ) + "):RedisSendSyncImpl: Redis++ RedirectionError (rebalance? node failure?). Current slot: " +
                                 CORE::ToString( m_redisHashSlot ) + ", new slot: " + CORE::ToString( e.slot() ) + " at node " + e.node().host + ":" + CORE::ToString( e.node().port ) +
                                 " exception: " + e.what() );
+        RedisReconnect();
 
-        RedisDisconnect();
-        m_redisReconnectTimer->SetEnabled( true );
         return false;
     }
     catch ( const sw::redis::Error& e )
     {
 		++m_redisErrorReplies;
         GUCEF_EXCEPTION_LOG( CORE::LOGLEVEL_IMPORTANT, "Udp2RedisClusterChannel(" + CORE::PointerToString( this ) + "):RedisSendSyncImpl: Redis++ exception: " + e.what() );
-        RedisDisconnect();
-        m_redisReconnectTimer->SetEnabled( true );
+        RedisReconnect();
+
         return false;
     }
     catch ( const std::exception& e )
@@ -936,7 +935,8 @@ ClusterChannelRedisWriter::GetRedisClusterNodeMap( RedisNodeMap& nodeMap )
     {
 		++m_redisErrorReplies;
         GUCEF_EXCEPTION_LOG( CORE::LOGLEVEL_IMPORTANT, "Udp2RedisClusterChannel(" + CORE::PointerToString( this ) + "):GetRedisClusterNodeMap: Redis++ exception: " + e.what() );
-        m_redisReconnectTimer->SetEnabled( true );
+        RedisReconnect();
+
         return false;
     }
     catch ( const std::exception& e )
@@ -985,6 +985,17 @@ ClusterChannelRedisWriter::RedisDisconnect( void )
     }
 
     return true;
+}
+
+/*-------------------------------------------------------------------------*/
+
+bool
+ClusterChannelRedisWriter::RedisReconnect( void )
+{
+    return
+        RedisDisconnect() &&
+        m_redisReconnectTimer->SetEnabled( true );
+
 }
 
 /*-------------------------------------------------------------------------*/
@@ -1800,7 +1811,8 @@ RestApiUdp2RedisStatus::Serialize( const CORE::CString& resourcePath,
                 Udp2RedisCluster::ChannelsStatus channelsStatus;
                 m_app->GetChannelsStatus( channelsStatus );
 
-                CORE::CDataNode* statuses = output.AddChild( "Channels", GUCEF_DATATYPE_ARRAY );;
+                CORE::CDataNode* statuses = output.AddChild( "Channels", GUCEF_DATATYPE_ARRAY );
+
                 Udp2RedisCluster::ChannelsStatus::const_iterator chStatus = channelsStatus.begin();
                 for( ; chStatus != channelsStatus.end(); ++chStatus )
                 {
@@ -1936,8 +1948,7 @@ Udp2RedisCluster::GetChannelsStatus( ChannelsStatus& channelsStatus ) const
     {
         CORE::Int32 channelId = iterChannel->first;
         Udp2RedisClusterChannelPtr channel = (*iterChannel).second;
-        bool isParsing = channel->IsOnline();
-        channelsStatus[channelId] = isParsing;
+        channelsStatus[channelId] = channel->IsOnline();
     }
 }
 
