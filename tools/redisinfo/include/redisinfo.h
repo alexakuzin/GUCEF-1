@@ -466,18 +466,14 @@ class RestApiRedisInfoConfigResource : public WEB::CCodecBasedHTTPServerResource
 class RestApiRedisInfoStatus : public WEB::CCodecBasedHTTPServerResource
 {
 public:
-
     RestApiRedisInfoStatus( RedisInfo* app );
-
     virtual ~RestApiRedisInfoStatus();
 
     virtual bool Serialize( const CORE::CString& resourcePath,
                             CORE::CDataNode& output,
                             const CORE::CString& representation,
                             const CORE::CString& params ) GUCEF_VIRTUAL_OVERRIDE;
-
 private:
-
     RedisInfo* m_app;
 };
 

@@ -2687,6 +2687,8 @@ RedisInfo::IsOnline( void ) const
 {
     GUCEF_TRACE;
 
+    MT::CObjectScopeReadOnlyLock lock( m_appLock );
+
     if( m_infoServices.empty() )
         return false;
 
