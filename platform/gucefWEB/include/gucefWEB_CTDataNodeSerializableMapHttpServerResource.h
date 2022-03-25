@@ -167,18 +167,18 @@ class CTDataNodeSerializableMapHttpServerResource : public CCodecBasedHTTPServer
     CORE::CIValueToDataNodeSerializer* m_valueSerializer;
 
     private:
-    
-    bool SerializeMappedType( const SerializableObj& mappedType, CORE::CDataNode& domRootNode, const CORE::CDataNodeSerializableSettings& serializerOptions ) 
-        { return m_valueSerializer->Serialize( mappedType, domRootNode, serializerOptions ); }
-    
-    bool SerializeMappedType( const SerializableObj* mappedType, CORE::CDataNode& domRootNode, const CORE::CDataNodeSerializableSettings& serializerOptions ) 
-        { return GUCEF_NULL != ptr ? m_valueSerializer->Serialize( mappedType, *mappedType, serializerOptions ) : false; }
 
-    bool DeserializeMappedType( SerializableObj& mappedType, const CORE::CDataNode& domRootNode, const CORE::CDataNodeSerializableSettings& serializerOptions ) 
+    bool SerializeMappedType( const SerializableObj& mappedType, CORE::CDataNode& domRootNode, const CORE::CDataNodeSerializableSettings& serializerOptions )
+        { return m_valueSerializer->Serialize( mappedType, domRootNode, serializerOptions ); }
+
+    bool SerializeMappedType( const SerializableObj* mappedType, CORE::CDataNode& domRootNode, const CORE::CDataNodeSerializableSettings& serializerOptions )
+        { return GUCEF_NULL != m_valueSerializer ? m_valueSerializer->Serialize( mappedType, *mappedType, serializerOptions ) : false; }
+
+    bool DeserializeMappedType( SerializableObj& mappedType, const CORE::CDataNode& domRootNode, const CORE::CDataNodeSerializableSettings& serializerOptions )
        { return m_valueSerializer->Deserialize( mappedType, domRootNode, serializerOptions ); }
-    
-    bool DeserializeMappedType( SerializableObj* mappedType, const CORE::CDataNode& domRootNode, const CORE::CDataNodeSerializableSettings& serializerOptions ) 
-        { return GUCEF_NULL != ptr ? m_valueSerializer->Deserialize( *mappedType, domRootNode, serializerOptions ) : false; }
+
+    bool DeserializeMappedType( SerializableObj* mappedType, const CORE::CDataNode& domRootNode, const CORE::CDataNodeSerializableSettings& serializerOptions )
+        { return GUCEF_NULL != m_valueSerializer ? m_valueSerializer->Deserialize( *mappedType, domRootNode, serializerOptions ) : false; }
 
     CTDataNodeSerializableMapHttpServerResource( void );
     CTDataNodeSerializableMapHttpServerResource( const CTDataNodeSerializableMapHttpServerResource& src );
