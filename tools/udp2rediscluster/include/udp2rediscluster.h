@@ -207,6 +207,8 @@ class ClusterChannelRedisWriter : public CORE::CTaskConsumer
 
     const ChannelSettings& GetChannelSettings( void ) const;
 
+    bool IsOnline( void ) const;
+
     private:
 
     bool RedisSendSyncImpl( const TPacketEntryVectorPtrVector& udpPackets, const TUInt32Vector& packetCounts );
@@ -218,6 +220,8 @@ class ClusterChannelRedisWriter : public CORE::CTaskConsumer
     bool RedisConnect( void );
 
     bool RedisDisconnect( void );
+
+    bool RedisReconnect( void );
 
     bool GetRedisClusterNodeMap( RedisNodeMap& nodeMap );
 
@@ -295,6 +299,8 @@ class Udp2RedisClusterChannel : public CORE::CTaskConsumer
     virtual bool WaitForTaskToFinish( CORE::Int32 timeoutInMs ) GUCEF_VIRTUAL_OVERRIDE;
 
     bool LoadConfig( const ChannelSettings& channelSettings );
+
+    bool IsOnline( void ) const;
 
     const ChannelSettings& GetChannelSettings( void ) const;
 
@@ -387,6 +393,26 @@ class RestApiUdp2RedisInfoResource : public WEB::CCodecBasedHTTPServerResource
     private:
 
     Udp2RedisCluster* m_app;
+};                                                          
+
+/*-------------------------------------------------------------------------*/
+
+class RestApiUdp2RedisStatus : public WEB::CCodecBasedHTTPServerResource
+{
+public:
+
+    RestApiUdp2RedisStatus( Udp2RedisCluster* app );
+
+    virtual ~RestApiUdp2RedisStatus();
+
+    virtual bool Serialize( const CORE::CString& resourcePath,
+                            CORE::CDataNode& output,
+                            const CORE::CString& representation,
+                            const CORE::CString& params ) GUCEF_VIRTUAL_OVERRIDE;
+
+private:
+
+    Udp2RedisCluster* m_app;
 };
 
 /*-------------------------------------------------------------------------*/
@@ -423,6 +449,7 @@ class Udp2RedisCluster : public CORE::CObserver             ,
                          public CORE::CGloballyConfigurable
 {
     public:
+        using ChannelsStatus = std::map<CORE::Int32, bool>;
 
     Udp2RedisCluster( void );
     virtual ~Udp2RedisCluster();
@@ -432,6 +459,12 @@ class Udp2RedisCluster : public CORE::CObserver             ,
     bool SetStandbyMode( bool newMode );
 
     bool IsGlobalStandbyEnabled( void ) const;
+
+    bool IsInStandby( void ) const;
+
+    bool IsOnline( void ) const;
+
+    void GetChannelsStatus( ChannelsStatus& channelsStatus ) const;
 
     virtual bool LoadConfig( const CORE::CDataNode& cfg ) GUCEF_VIRTUAL_OVERRIDE;
 
