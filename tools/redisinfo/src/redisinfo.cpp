@@ -2482,12 +2482,6 @@ RestApiRedisInfoStatus::Serialize( const CORE::CString& resourcePath,
 
     if( GUCEF_NULL != m_app )
     {
-        const CORE::SVersion ver{ m_app->GetVersion() };
-        std::stringstream ssVer;
-        ssVer << ver.major << "." << ver.minor << "." << ver.release << "." << ver.patch;
-        const CORE::CString strVer{ ssVer.str() };
-        output.SetAttribute( "Version", strVer );
-
         if( m_app->IsInStandby() )
             output.SetAttribute( "Status", "standby" );
         else if( m_app->IsOnline() )
@@ -2753,67 +2747,4 @@ const CORE::CDataNode&
 RedisInfo::GetGlobalConfig( void ) const
 {
     return m_globalConfig;
-}
-
-/*-------------------------------------------------------------------------*/
-
-const CORE::CString
-RedisInfo::GetExecutableFileName( void ) const
-{
-#if defined(PLATFORM_POSIX) || defined(__linux__)
-
-    std::string sp;
-    std::ifstream( "/proc/self/comm" ) >> sp;
-    return sp;
-
-#elif defined(_WIN32)
-
-    char buf[MAX_PATH];
-    GetModuleFileNameA( nullptr, buf, MAX_PATH );
-    return buf;
-
-#else
-
-    static_assert(false, "unrecognized platform");
-
-#endif
-}
-
-/*-------------------------------------------------------------------------*/
-
-const CORE::SVersion&
-RedisInfo::GetVersion( void ) const
-{
-    CORE::SVersion ver{ NULL };
-
-    const CORE::CString exeName = GetExecutableFileName();
-
-    DWORD  verHandle = 0;
-    UINT   szBuf = 0;
-    LPBYTE lpBuf = NULL;
-    DWORD  verSize{ GetFileVersionInfoSize( exeName.C_String(), &verHandle ) };
-
-    if( verSize != NULL )
-    {
-        std::unique_ptr<LPSTR> verData{ new LPSTR[verSize] };
-        if( GetFileVersionInfo( exeName.C_String(), NULL, verSize, verData.get() ) )
-        {
-            if( VerQueryValue( verData.get(), "\\", reinterpret_cast<VOID FAR * FAR*>(&lpBuf), &szBuf ) && szBuf )
-            {
-                VS_FIXEDFILEINFO* verInfo = reinterpret_cast<VS_FIXEDFILEINFO*>(lpBuf);
-                if( verInfo->dwSignature == FIXEDFILEINFO )
-                {
-                    // it does not matter if you are on 32 bit or 64 bit,
-                    // DWORD is always 32 bits, so first two revision numbers
-                    // come from dwFileVersionMS, last two come from dwFileVersionLS
-                    ver.major = (verInfo->dwFileVersionMS >> 16) & 0xffff;
-                    ver.minor = (verInfo->dwFileVersionMS >> 0) & 0xfff;
-                    ver.release = (verInfo->dwFileVersionLS >> 16) & 0xffff;
-                    ver.patch = (verInfo->dwFileVersionLS >> 0) & 0xffff;
-                }
-            }
-        }
-    }
-
-    return ver;
 }

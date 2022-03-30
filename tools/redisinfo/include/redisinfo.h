@@ -503,8 +503,6 @@ class RedisInfo : public CORE::CObserver
 
     const CORE::CDataNode& GetGlobalConfig( void ) const;
 
-    const CORE::SVersion& GetVersion( void ) const;
-
     private:
 
     typedef CORE::CTEventHandlerFunctor< RedisInfo > TEventCallback;
@@ -512,9 +510,6 @@ class RedisInfo : public CORE::CObserver
     typedef GUCEF::WEB::CTReadableMapIndexHttpServerResource< CORE::CString, RedisInfoServicePtr > TStringToInfoServiceMapWebResource;
 
     private:
-
-    static const DWORD FIXEDFILEINFO = 0xFEEF04BD;
-    const CORE::CString GetExecutableFileName( void ) const;
 
     bool m_isInStandby;
     bool m_globalStandbyEnabled;
